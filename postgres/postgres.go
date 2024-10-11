@@ -78,11 +78,7 @@ func New(ctx context.Context, cfg PostgresLeaderElectionConfig) (leaderelection.
 		return nil, err
 	}
 
-	return &PostgresLeaderElection{
-		dbConn: conn,
-		cfg:    cfg,
-		state:  leaderelection.Bootstrap,
-	}, nil
+	return NewWithConn(ctx, conn, cfg)
 }
 
 // Initialize leader election with postgres DB connection and lock id.
