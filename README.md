@@ -15,7 +15,7 @@ An leader election can be run with either one of these implementations.
 
 ## Documentation
 
-- [Reference](https://godoc.org/github.com/drio-ai/leaderelection
+- [Reference](https://godoc.org/github.com/drio-ai/leaderelection)
 
 ## Usage
 
