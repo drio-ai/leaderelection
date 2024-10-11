@@ -17,9 +17,10 @@ const (
 	defaultExpiry time.Duration = 30 * time.Second
 )
 
+// Redis client parameters and lock id
 type RedisLeaderElectionConfig struct {
 	Host               string
-	Port               string
+	Port               uint16
 	Secure             bool
 	InsecureSkipVerify bool
 	Password           string
@@ -37,9 +38,9 @@ type RedisLeaderElection struct {
 	ts          time.Time
 }
 
-func setupRedisClient(ctx context.Context, cfg RedisLeaderElectionConfig) (*redis.Client, error) {
+func setupRedisClient(_ context.Context, cfg RedisLeaderElectionConfig) (*redis.Client, error) {
 	opts := &redis.Options{
-		Addr:     cfg.Host + ":" + cfg.Port,
+		Addr:     cfg.Host + ":" + fmt.Sprint(cfg.Port),
 		Password: cfg.Password,
 	}
 
@@ -104,6 +105,7 @@ func (rle *RedisLeaderElection) acquireLeadership(ctx context.Context) error {
 	return rle.cfg.FollowerCallback(ctx)
 }
 
+// Relinquish leadership. A follower calling this function will be returned an error.
 func (rle *RedisLeaderElection) RelinquishLeadership(ctx context.Context) error {
 	if rle.state != leaderelection.Leader {
 		return leaderelection.ErrInvalidState
@@ -138,6 +140,7 @@ func (rle *RedisLeaderElection) checkLeadership(ctx context.Context) error {
 	return rle.cfg.LeaderCallback(ctx)
 }
 
+// Run the election. Will run until passed context is canceled or times out or deadline is exceeded.
 func (rle *RedisLeaderElection) Run(ctx context.Context) error {
 	if rle.state != leaderelection.Bootstrap {
 		return leaderelection.ErrInvalidState

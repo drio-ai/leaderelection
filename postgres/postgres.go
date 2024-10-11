@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -9,9 +10,10 @@ import (
 	leaderelection "github.com/drio-ai/leaderelection"
 )
 
+// Postgres connection parameters and lock id
 type PostgresLeaderElectionConfig struct {
 	Host     string
-	Port     string
+	Port     uint16
 	Secure   string
 	User     string
 	Password string
@@ -52,7 +54,7 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 }
 
 func setupDBConn(ctx context.Context, cfg PostgresLeaderElectionConfig) (*pgx.Conn, error) {
-	dbUrl := "postgres://" + cfg.User + ":" + cfg.Password + "@" + cfg.Host + ":" + cfg.Port + "/" + cfg.Database + "?sslmode=" + cfg.Secure
+	dbUrl := "postgres://" + cfg.User + ":" + cfg.Password + "@" + cfg.Host + ":" + fmt.Sprint(cfg.Port) + "/" + cfg.Database + "?sslmode=" + cfg.Secure
 	config, err := pgx.ParseConfig(dbUrl)
 	if err != nil {
 		return nil, err
@@ -126,6 +128,7 @@ func (ple *PostgresLeaderElection) acquireLeadership(ctx context.Context) error 
 	return ple.cfg.FollowerCallback(ctx)
 }
 
+// Relinquish leadership. A follower calling this function will be returned an error.
 func (ple *PostgresLeaderElection) RelinquishLeadership(ctx context.Context) error {
 	if ple.state != leaderelection.Leader {
 		return leaderelection.ErrInvalidState
@@ -166,6 +169,7 @@ func (ple *PostgresLeaderElection) checkLeadership(ctx context.Context) error {
 	return ple.cfg.FollowerCallback(ctx)
 }
 
+// Run the election. Will run until passed context is canceled or times out or deadline is exceeded.
 func (ple *PostgresLeaderElection) Run(ctx context.Context) error {
 	if ple.state != leaderelection.Bootstrap {
 		return leaderelection.ErrInvalidState
