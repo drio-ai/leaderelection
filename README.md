@@ -10,8 +10,8 @@ Install leaderelection using the go get command:
 
 An leader election can be run with either one of these implementations.
 
- * Postgres advisory locks
- * Redis distributed locks
+ * [Postgres advisory locks](https://pkg.go.dev/github.com/drio-ai/leaderelection@v0.1.1/postgres)
+ * [Redis distributed locks](https://pkg.go.dev/github.com/drio-ai/leaderelection@v0.1.1/redis)
 
 ## Documentation
 
