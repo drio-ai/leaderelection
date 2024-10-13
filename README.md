@@ -78,11 +78,6 @@ func (t *taskInfo) isLeader(ctx context.Context) error {
 	}
 	t.state = leaderelection.Leader
 
-	if time.Now().Sub(t.ts) > 30 * time.Second {
-		return t.ple.RelinquishLeadership(ctx)
-		panic("exiting")
-	}
-
 	return nil
 }
 
@@ -111,6 +106,7 @@ func task(ctx context.Context, id int) {
 		Database: "db",
 		LockId: lockId,
 		LeaderElectionConfig: leaderelection.LeaderElectionConfig {
+            RelinquishInterval: 30 * time.Second,
 			LeaderCheckInterval: 5 * time.Second,
 			FollowerCheckInterval: 5 * time.Second,
 
@@ -195,11 +191,6 @@ func (t *taskInfo) isLeader(ctx context.Context) error {
 	}
 	t.state = leaderelection.Leader
 
-	if time.Now().Sub(t.ts) > 30 * time.Second {
-		return t.rle.RelinquishLeadership(ctx)
-		panic("exiting as leader")
-	}
-
 	return nil
 }
 
@@ -228,6 +219,7 @@ func task(ctx context.Context, id int) {
 		Expiry: 15 * time.Second,
 		LockId: lockId,
 		LeaderElectionConfig: leaderelection.LeaderElectionConfig {
+            RelinquishInterval: 30 * time.Second,
 			LeaderCheckInterval: 5 * time.Second,
 			FollowerCheckInterval: 5 * time.Second,
 
