@@ -24,10 +24,12 @@ type PostgresLeaderElectionConfig struct {
 }
 
 type PostgresLeaderElection struct {
-	cfg    PostgresLeaderElectionConfig
-	dbConn *pgx.Conn
-	state  leaderelection.State
-	ts     time.Time
+	cfg             PostgresLeaderElectionConfig
+	dbConn          *pgx.Conn
+	state           leaderelection.State
+	relinquishIntvl time.Duration
+	ts              time.Time
+	leaderAt        time.Time
 }
 
 const (
@@ -93,11 +95,25 @@ func NewWithConn(ctx context.Context, conn *pgx.Conn, cfg PostgresLeaderElection
 		return nil, err
 	}
 
+	intvl := cfg.RelinquishInterval
+	if intvl == 0 {
+		intvl = leaderelection.DefaultRelinquishInterval
+	}
+
 	return &PostgresLeaderElection{
-		dbConn: conn,
-		cfg:    cfg,
-		state:  leaderelection.Bootstrap,
+		dbConn:          conn,
+		cfg:             cfg,
+		state:           leaderelection.Bootstrap,
+		relinquishIntvl: intvl,
 	}, nil
+}
+
+func (ple *PostgresLeaderElection) shouldRelinquish() bool {
+	if ple.state == leaderelection.Leader {
+		return time.Now().Sub(ple.leaderAt) >= ple.relinquishIntvl
+	}
+
+	return false
 }
 
 func (ple *PostgresLeaderElection) setState(state leaderelection.State) {
@@ -120,6 +136,7 @@ func (ple *PostgresLeaderElection) acquireLeadership(ctx context.Context) error 
 	}
 
 	if isLeader {
+		ple.leaderAt = time.Now()
 		ple.setState(leaderelection.Leader)
 		return ple.cfg.LeaderCallback(ctx)
 	}
@@ -161,6 +178,10 @@ func (ple *PostgresLeaderElection) checkLeadership(ctx context.Context) error {
 	}
 
 	if isLeader {
+		if ple.shouldRelinquish() {
+			return ple.RelinquishLeadership(ctx)
+		}
+
 		ple.setState(leaderelection.Leader)
 		return ple.cfg.LeaderCallback(ctx)
 	}

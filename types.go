@@ -15,6 +15,10 @@ const (
 	Leader    State = "leader"
 )
 
+const (
+	DefaultRelinquishInterval time.Duration = 300 * time.Second
+)
+
 var (
 	ErrInvalidState = errors.New("invalid election state")
 )
@@ -22,6 +26,9 @@ var (
 type Callback func(context.Context) error
 
 type LeaderElectionConfig struct {
+	// Duration after which the leader will relinquish
+	RelinquishInterval time.Duration
+
 	// How often will leader check to make sure they are still the leader
 	LeaderCheckInterval time.Duration
 

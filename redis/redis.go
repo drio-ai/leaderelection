@@ -13,10 +13,6 @@ import (
 	leaderelection "github.com/drio-ai/leaderelection"
 )
 
-const (
-	defaultExpiry time.Duration = 30 * time.Second
-)
-
 // Redis client parameters and lock id
 type RedisLeaderElectionConfig struct {
 	Host               string
@@ -24,7 +20,6 @@ type RedisLeaderElectionConfig struct {
 	Secure             bool
 	InsecureSkipVerify bool
 	Password           string
-	Expiry             time.Duration
 	LockId             uint
 
 	leaderelection.LeaderElectionConfig
@@ -66,14 +61,14 @@ func New(ctx context.Context, cfg RedisLeaderElectionConfig) (leaderelection.Lea
 // Redis parameters can be skipped in this case.
 // Please note, this Redis client will be dedicated for leader election only.
 func NewWithConn(ctx context.Context, client *redis.Client, cfg RedisLeaderElectionConfig) (leaderelection.LeaderElection, error) {
-	expiry := defaultExpiry
-	if cfg.Expiry > 0 {
-		expiry = cfg.Expiry
+	intvl := cfg.RelinquishInterval
+	if intvl == 0 {
+		intvl = leaderelection.DefaultRelinquishInterval
 	}
 
 	return &RedisLeaderElection{
 		redisClient: client,
-		mutex:       redsync.New(goredis.NewPool(client)).NewMutex(fmt.Sprint(cfg.LockId), redsync.WithExpiry(expiry)),
+		mutex:       redsync.New(goredis.NewPool(client)).NewMutex(fmt.Sprint(cfg.LockId), redsync.WithExpiry(intvl)),
 		cfg:         cfg,
 		state:       leaderelection.Bootstrap,
 	}, nil
