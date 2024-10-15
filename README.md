@@ -68,7 +68,7 @@ type taskInfo struct {
 	ple   leaderelection.LeaderElection
 	state leaderelection.State
 	ts    time.Time
-	id	  int
+	id    int
 }
 
 func (t *taskInfo) isLeader(ctx context.Context) error {
@@ -92,25 +92,25 @@ func (t *taskInfo) isFollower(_ context.Context) error {
 }
 
 func task(ctx context.Context, id int) {
-	t := &taskInfo {
+	t := &taskInfo{
 		state: leaderelection.Bootstrap,
-		id: id,
+		id:    id,
 	}
 
-	cfg := postgres.PostgresLeaderElectionConfig {
-		Host: "postgres",
-		Port: "5432",
-		Secure: "allow",
-		User: "user",
-		Password: "**********",
+	cfg := postgres.PostgresLeaderElectionConfig{
+		Host:     "postgres",
+		Port:     5432,
+		Secure:   "allow",
+		User:     "user",
+		Password: "****************",
 		Database: "db",
-		LockId: lockId,
-		LeaderElectionConfig: leaderelection.LeaderElectionConfig {
-            RelinquishInterval: 30 * time.Second,
-			LeaderCheckInterval: 5 * time.Second,
+		LeaderElectionConfig: leaderelection.LeaderElectionConfig{
+			LockId:                lockId,
+			RelinquishInterval:    30 * time.Second,
+			LeaderCheckInterval:   5 * time.Second,
 			FollowerCheckInterval: 5 * time.Second,
 
-			LeaderCallback: t.isLeader,
+			LeaderCallback:   t.isLeader,
 			FollowerCallback: t.isFollower,
 		},
 	}
@@ -181,7 +181,7 @@ type taskInfo struct {
 	rle   leaderelection.LeaderElection
 	state leaderelection.State
 	ts    time.Time
-	id	  int
+	id    int
 }
 
 func (t *taskInfo) isLeader(ctx context.Context) error {
@@ -205,25 +205,24 @@ func (t *taskInfo) isFollower(_ context.Context) error {
 }
 
 func task(ctx context.Context, id int) {
-	t := &taskInfo {
+	t := &taskInfo{
 		state: leaderelection.Bootstrap,
-		id: id,
+		id:    id,
 	}
 
-	cfg := redis.RedisLeaderElectionConfig {
-		Host: "cache",
-		Port: "6379",
-		Secure: false,
-		InsecureSkipVerify: true,
-		Password: "********",
-		Expiry: 15 * time.Second,
-		LockId: lockId,
-		LeaderElectionConfig: leaderelection.LeaderElectionConfig {
-            RelinquishInterval: 30 * time.Second,
-			LeaderCheckInterval: 5 * time.Second,
+	cfg := redis.RedisLeaderElectionConfig{
+		Host:               "cache",
+		Port:               6379,
+		Secure:             false,
+		InsecureSkipVerify: false,
+		Password:           "****************",
+		LeaderElectionConfig: leaderelection.LeaderElectionConfig{
+			LockId:                lockId,
+			RelinquishInterval:    30 * time.Second,
+			LeaderCheckInterval:   5 * time.Second,
 			FollowerCheckInterval: 5 * time.Second,
 
-			LeaderCallback: t.isLeader,
+			LeaderCallback:   t.isLeader,
 			FollowerCallback: t.isFollower,
 		},
 	}
