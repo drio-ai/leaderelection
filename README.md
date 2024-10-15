@@ -65,7 +65,7 @@ const (
 )
 
 type taskInfo struct {
-	ple   leaderelection.LeaderElection
+	ple   leaderelection.LeaderElector
 	state leaderelection.State
 	ts    time.Time
 	id    int
@@ -178,7 +178,7 @@ const (
 )
 
 type taskInfo struct {
-	rle   leaderelection.LeaderElection
+	rle   leaderelection.LeaderElector
 	state leaderelection.State
 	ts    time.Time
 	id    int

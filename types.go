@@ -23,7 +23,7 @@ var (
 	ErrInvalidState = errors.New("invalid election state")
 )
 
-type LeaderElection interface {
+type LeaderElector interface {
 	// Called by a follower or bootstrap to acquire leadership. A leader calling this will be a no-op
 	// bool return value must be true if leadership acquisition was successful and false otherwise.
 	AcquireLeadership(context.Context) (bool, error)
@@ -62,11 +62,11 @@ type LeaderElectionConfig struct {
 	FollowerCallback Callback
 }
 
-type LeaderElectionRuntime struct {
+type LeaderElection struct {
 	state           State
 	relinquishIntvl time.Duration
 	leaderAt        time.Time
-	Elector         LeaderElection
+	Elector         LeaderElector
 
 	LeaderElectionConfig
 }

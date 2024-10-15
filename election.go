@@ -6,122 +6,122 @@ import (
 )
 
 // Initializes leader election runtime
-func (ler *LeaderElectionRuntime) Init(cfg LeaderElectionConfig) {
-	ler.state = Bootstrap
-	ler.LeaderElectionConfig = cfg
+func (le *LeaderElection) Init(cfg LeaderElectionConfig) {
+	le.state = Bootstrap
+	le.LeaderElectionConfig = cfg
 
-	ler.relinquishIntvl = cfg.RelinquishInterval
-	if ler.relinquishIntvl == 0 {
-		ler.relinquishIntvl = DefaultRelinquishInterval
+	le.relinquishIntvl = cfg.RelinquishInterval
+	if le.relinquishIntvl == 0 {
+		le.relinquishIntvl = DefaultRelinquishInterval
 	}
 }
 
 // Returns true if current state is Bootstrap
-func (ler *LeaderElectionRuntime) IsBootstrap() bool {
-	return ler.GetState() == Bootstrap
+func (le *LeaderElection) IsBootstrap() bool {
+	return le.GetState() == Bootstrap
 }
 
 // Returns true if current state is Leader
-func (ler *LeaderElectionRuntime) IsLeader() bool {
-	return ler.GetState() == Leader
+func (le *LeaderElection) IsLeader() bool {
+	return le.GetState() == Leader
 }
 
 // Returns true if current state is Follower
-func (ler *LeaderElectionRuntime) IsFollower() bool {
-	return ler.GetState() == Follower
+func (le *LeaderElection) IsFollower() bool {
+	return le.GetState() == Follower
 }
 
 // Return current state
-func (ler *LeaderElectionRuntime) GetState() State {
-	return ler.state
+func (le *LeaderElection) GetState() State {
+	return le.state
 }
 
-func (ler *LeaderElectionRuntime) setState(state State) {
-	if !ler.IsLeader() && state == Leader {
-		ler.leaderAt = time.Now()
+func (le *LeaderElection) setState(state State) {
+	if !le.IsLeader() && state == Leader {
+		le.leaderAt = time.Now()
 	}
-	ler.state = state
+	le.state = state
 }
 
-func (ler *LeaderElectionRuntime) shouldRelinquish() bool {
-	if ler.IsLeader() {
-		return time.Since(ler.leaderAt) >= ler.relinquishIntvl
+func (le *LeaderElection) shouldRelinquish() bool {
+	if le.IsLeader() {
+		return time.Since(le.leaderAt) >= le.relinquishIntvl
 	}
 
 	return false
 }
 
-func (ler *LeaderElectionRuntime) acquireLeadershipWrapper(ctx context.Context) error {
-	isLeader, err := ler.Elector.AcquireLeadership(ctx)
+func (le *LeaderElection) acquireLeadershipWrapper(ctx context.Context) error {
+	isLeader, err := le.Elector.AcquireLeadership(ctx)
 	if err != nil {
 		return err
 	}
 
 	if isLeader {
-		ler.setState(Leader)
-		return ler.LeaderCallback(ctx)
+		le.setState(Leader)
+		return le.LeaderCallback(ctx)
 	}
 
-	ler.setState(Follower)
-	return ler.FollowerCallback(ctx)
+	le.setState(Follower)
+	return le.FollowerCallback(ctx)
 }
 
-func (ler *LeaderElectionRuntime) checkLeadershipWrapper(ctx context.Context) error {
-	if ler.shouldRelinquish() {
-		status, err := ler.Elector.RelinquishLeadership(ctx)
+func (le *LeaderElection) checkLeadershipWrapper(ctx context.Context) error {
+	if le.shouldRelinquish() {
+		status, err := le.Elector.RelinquishLeadership(ctx)
 		if err != nil {
 			return err
 		}
 
 		// We are a follower if status is true
 		if status {
-			ler.setState(Follower)
-			return ler.FollowerCallback(ctx)
+			le.setState(Follower)
+			return le.FollowerCallback(ctx)
 		}
 
 		// If status == false, we will leave the current state as is.
 	}
 
-	isLeader, err := ler.Elector.CheckLeadership(ctx)
+	isLeader, err := le.Elector.CheckLeadership(ctx)
 	if err != nil {
 		return err
 	}
 
 	if isLeader {
-		ler.setState(Leader)
-		return ler.LeaderCallback(ctx)
+		le.setState(Leader)
+		return le.LeaderCallback(ctx)
 	}
 
-	ler.setState(Follower)
-	return ler.FollowerCallback(ctx)
+	le.setState(Follower)
+	return le.FollowerCallback(ctx)
 }
 
 // Run the election. Will run until passed context is canceled or times out or deadline is exceeded.
-func (ler *LeaderElectionRuntime) Run(ctx context.Context) error {
-	if !ler.IsBootstrap() {
+func (le *LeaderElection) Run(ctx context.Context) error {
+	if !le.IsBootstrap() {
 		return ErrInvalidState
 	}
 
 	for {
 		loopTs := time.Now()
 
-		switch ler.GetState() {
+		switch le.GetState() {
 		case Bootstrap, Follower:
-			err := ler.acquireLeadershipWrapper(ctx)
+			err := le.acquireLeadershipWrapper(ctx)
 			if err != nil {
 				return err
 			}
 
 		case Leader:
-			err := ler.checkLeadershipWrapper(ctx)
+			err := le.checkLeadershipWrapper(ctx)
 			if err != nil {
 				return err
 			}
 		}
 
-		intvl := ler.FollowerCheckInterval
-		if ler.IsLeader() {
-			intvl = ler.LeaderCheckInterval
+		intvl := le.FollowerCheckInterval
+		if le.IsLeader() {
+			intvl = le.LeaderCheckInterval
 		}
 
 		intvl -= time.Since(loopTs)

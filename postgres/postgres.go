@@ -21,11 +21,11 @@ type PostgresLeaderElectionConfig struct {
 	leaderelection.LeaderElectionConfig
 }
 
-type PostgresLeaderElectionRuntime struct {
+type PostgresLeaderElection struct {
 	cfg    PostgresLeaderElectionConfig
 	dbConn *pgx.Conn
 
-	leaderelection.LeaderElectionRuntime
+	leaderelection.LeaderElection
 }
 
 const (
@@ -72,7 +72,7 @@ func setupDBConn(ctx context.Context, cfg PostgresLeaderElectionConfig) (*pgx.Co
 }
 
 // Initialize leader election with postgres DB parameters and lock id
-func New(ctx context.Context, cfg PostgresLeaderElectionConfig) (leaderelection.LeaderElection, error) {
+func New(ctx context.Context, cfg PostgresLeaderElectionConfig) (leaderelection.LeaderElector, error) {
 	conn, err := setupDBConn(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func New(ctx context.Context, cfg PostgresLeaderElectionConfig) (leaderelection.
 // Caller must have connected to postgres and gives us a connection to work with.
 // DB parameters can be skipped in this case.
 // Please note, this DB connection will dedicated for leader election only.
-func NewWithConn(ctx context.Context, conn *pgx.Conn, cfg PostgresLeaderElectionConfig) (leaderelection.LeaderElection, error) {
+func NewWithConn(ctx context.Context, conn *pgx.Conn, cfg PostgresLeaderElectionConfig) (leaderelection.LeaderElector, error) {
 	err := prepareStatements(ctx, conn)
 	if err != nil {
 		return nil, err
@@ -96,26 +96,26 @@ func NewWithConn(ctx context.Context, conn *pgx.Conn, cfg PostgresLeaderElection
 		intvl = leaderelection.DefaultRelinquishInterval
 	}
 
-	pler := &PostgresLeaderElectionRuntime{
+	ple := &PostgresLeaderElection{
 		dbConn: conn,
 		cfg:    cfg,
 	}
 
 	// Initialize LeaderElectionRuntime and return
-	pler.Init(cfg.LeaderElectionConfig)
-	return pler, nil
+	ple.Init(cfg.LeaderElectionConfig)
+	return ple, nil
 }
 
-func (pler *PostgresLeaderElectionRuntime) AcquireLeadership(ctx context.Context) (bool, error) {
+func (ple *PostgresLeaderElection) AcquireLeadership(ctx context.Context) (bool, error) {
 	// Postgres allows us to call try lock even if we already hold the lock.
 	// If we do, we must make as many unlock calls to relinquish the lock.
 	// We don't want to keep track of this. Return if we are already the leader.
-	if pler.IsLeader() {
+	if ple.IsLeader() {
 		return true, nil
 	}
 
 	var isLeader bool
-	err := pler.dbConn.QueryRow(ctx, lelock, pler.cfg.LockId).Scan(&isLeader)
+	err := ple.dbConn.QueryRow(ctx, lelock, ple.cfg.LockId).Scan(&isLeader)
 	if err != nil {
 		return false, err
 	}
@@ -123,13 +123,13 @@ func (pler *PostgresLeaderElectionRuntime) AcquireLeadership(ctx context.Context
 	return isLeader, nil
 }
 
-func (pler *PostgresLeaderElectionRuntime) CheckLeadership(ctx context.Context) (bool, error) {
-	if !pler.IsLeader() {
+func (ple *PostgresLeaderElection) CheckLeadership(ctx context.Context) (bool, error) {
+	if !ple.IsLeader() {
 		return false, leaderelection.ErrInvalidState
 	}
 
 	var isLeader bool
-	err := pler.dbConn.QueryRow(ctx, lecheck, pler.cfg.LockId).Scan(&isLeader)
+	err := ple.dbConn.QueryRow(ctx, lecheck, ple.cfg.LockId).Scan(&isLeader)
 	if err != nil {
 		return false, err
 	}
@@ -138,13 +138,13 @@ func (pler *PostgresLeaderElectionRuntime) CheckLeadership(ctx context.Context) 
 }
 
 // Relinquish leadership. An error will be returned if caller is not the leader.
-func (pler *PostgresLeaderElectionRuntime) RelinquishLeadership(ctx context.Context) (bool, error) {
-	if !pler.IsLeader() {
+func (ple *PostgresLeaderElection) RelinquishLeadership(ctx context.Context) (bool, error) {
+	if !ple.IsLeader() {
 		return false, leaderelection.ErrInvalidState
 	}
 
 	var status bool
-	err := pler.dbConn.QueryRow(ctx, leunlock, pler.cfg.LockId).Scan(&status)
+	err := ple.dbConn.QueryRow(ctx, leunlock, ple.cfg.LockId).Scan(&status)
 	if err != nil {
 		return false, err
 	}
@@ -157,7 +157,7 @@ func (pler *PostgresLeaderElectionRuntime) RelinquishLeadership(ctx context.Cont
 }
 
 // Run the election
-func (pler *PostgresLeaderElectionRuntime) Run(ctx context.Context) error {
-	pler.Elector = pler
-	return pler.LeaderElectionRuntime.Run(ctx)
+func (ple *PostgresLeaderElection) Run(ctx context.Context) error {
+	ple.Elector = ple
+	return ple.LeaderElection.Run(ctx)
 }
