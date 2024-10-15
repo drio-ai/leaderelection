@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,17 +21,16 @@ type RedisLeaderElectionConfig struct {
 	Secure             bool
 	InsecureSkipVerify bool
 	Password           string
-	LockId             uint
 
 	leaderelection.LeaderElectionConfig
 }
 
-type RedisLeaderElection struct {
+type RedisLeaderElectionRuntime struct {
 	cfg         RedisLeaderElectionConfig
 	redisClient *redis.Client
 	mutex       *redsync.Mutex
-	state       leaderelection.State
-	ts          time.Time
+
+	leaderelection.LeaderElectionRuntime
 }
 
 func setupRedisClient(_ context.Context, cfg RedisLeaderElectionConfig) (*redis.Client, error) {
@@ -66,113 +66,74 @@ func NewWithConn(ctx context.Context, client *redis.Client, cfg RedisLeaderElect
 		intvl = leaderelection.DefaultRelinquishInterval
 	}
 
-	return &RedisLeaderElection{
+	rler := &RedisLeaderElectionRuntime{
 		redisClient: client,
-		mutex:       redsync.New(goredis.NewPool(client)).NewMutex(fmt.Sprint(cfg.LockId), redsync.WithExpiry(intvl)),
+		mutex:       redsync.New(goredis.NewPool(client)).NewMutex(fmt.Sprint(cfg.LockId), redsync.WithExpiry(intvl), redsync.WithFailFast(true)),
 		cfg:         cfg,
-		state:       leaderelection.Bootstrap,
-	}, nil
-}
-
-func (rle *RedisLeaderElection) setState(state leaderelection.State) {
-	rle.state = state
-	rle.ts = time.Now()
-}
-
-func (rle *RedisLeaderElection) acquireLeadership(ctx context.Context) error {
-	if rle.state == leaderelection.Leader {
-		return nil
 	}
 
-	err := rle.mutex.TryLockContext(ctx)
+	// Initialize LeaderElectionRuntime and return
+	rler.Init(cfg.LeaderElectionConfig)
+	return rler, nil
+}
+
+func (rler *RedisLeaderElectionRuntime) AcquireLeadership(ctx context.Context) (bool, error) {
+	if rler.IsLeader() {
+		return true, nil
+	}
+
+	err := rler.mutex.TryLockContext(ctx)
 	if err != nil {
-		if _, ok := err.(*redsync.ErrTaken); !ok {
-			return err
+		if _, ok := err.(*redsync.ErrTaken); ok {
+			return false, nil
 		}
+
+		return false, err
 	}
 
-	if err == nil {
-		rle.setState(leaderelection.Leader)
-		return rle.cfg.LeaderCallback(ctx)
+	return true, nil
+}
+
+func (rler *RedisLeaderElectionRuntime) CheckLeadership(ctx context.Context) (bool, error) {
+	if !rler.IsLeader() {
+		return false, leaderelection.ErrInvalidState
 	}
 
-	rle.setState(leaderelection.Follower)
-	return rle.cfg.FollowerCallback(ctx)
+	lockUntil := rler.mutex.Until()
+	if lockUntil.IsZero() || time.Now().After(lockUntil) {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // Relinquish leadership. A follower calling this function will be returned an error.
-func (rle *RedisLeaderElection) RelinquishLeadership(ctx context.Context) error {
-	if rle.state != leaderelection.Leader {
-		return leaderelection.ErrInvalidState
+func (rler *RedisLeaderElectionRuntime) RelinquishLeadership(ctx context.Context) (bool, error) {
+	if !rler.IsLeader() {
+		return false, leaderelection.ErrInvalidState
 	}
 
-	unlocked, err := rle.mutex.UnlockContext(ctx)
+	unlocked, err := rler.mutex.UnlockContext(ctx)
 	if err != nil {
-		return err
-	}
+		if errors.Is(err, redsync.ErrLockAlreadyExpired) {
+			return false, nil
+		}
 
+		if _, ok := err.(*redsync.ErrTaken); ok {
+			return false, nil
+		}
+
+		return false, err
+	}
 	if !unlocked {
-		rle.setState(leaderelection.Leader)
-		return rle.cfg.LeaderCallback(ctx)
+		return false, nil
 	}
 
-	rle.setState(leaderelection.Follower)
-	return rle.cfg.FollowerCallback(ctx)
+	return true, nil
 }
 
-func (rle *RedisLeaderElection) checkLeadership(ctx context.Context) error {
-	if rle.state != leaderelection.Leader {
-		return leaderelection.ErrInvalidState
-	}
-
-	lockUntil := rle.mutex.Until()
-	if lockUntil.IsZero() || time.Now().After(lockUntil) {
-		rle.setState(leaderelection.Follower)
-		return rle.cfg.FollowerCallback(ctx)
-	}
-
-	rle.setState(leaderelection.Leader)
-	return rle.cfg.LeaderCallback(ctx)
-}
-
-// Run the election. Will run until passed context is canceled or times out or deadline is exceeded.
-func (rle *RedisLeaderElection) Run(ctx context.Context) error {
-	if rle.state != leaderelection.Bootstrap {
-		return leaderelection.ErrInvalidState
-	}
-
-	for {
-		rle.ts = time.Now()
-
-		switch rle.state {
-		case leaderelection.Bootstrap, leaderelection.Follower:
-			err := rle.acquireLeadership(ctx)
-			if err != nil {
-				return err
-			}
-
-		case leaderelection.Leader:
-			err := rle.checkLeadership(ctx)
-			if err != nil {
-				return err
-			}
-		}
-
-		intvl := rle.cfg.FollowerCheckInterval
-		if rle.state == leaderelection.Leader {
-			intvl = rle.cfg.LeaderCheckInterval
-		}
-
-		intvl -= time.Now().Sub(rle.ts)
-		if intvl < 0 {
-			intvl = 0
-		}
-
-		select {
-		case <-ctx.Done():
-			return context.Canceled
-
-		case <-time.After(intvl):
-		}
-	}
+// Run the election
+func (rler *RedisLeaderElectionRuntime) Run(ctx context.Context) error {
+	rler.Elector = rler
+	return rler.LeaderElectionRuntime.Run(ctx)
 }

@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -18,18 +17,15 @@ type PostgresLeaderElectionConfig struct {
 	User     string
 	Password string
 	Database string
-	LockId   uint
 
 	leaderelection.LeaderElectionConfig
 }
 
-type PostgresLeaderElection struct {
-	cfg             PostgresLeaderElectionConfig
-	dbConn          *pgx.Conn
-	state           leaderelection.State
-	relinquishIntvl time.Duration
-	ts              time.Time
-	leaderAt        time.Time
+type PostgresLeaderElectionRuntime struct {
+	cfg    PostgresLeaderElectionConfig
+	dbConn *pgx.Conn
+
+	leaderelection.LeaderElectionRuntime
 }
 
 const (
@@ -100,134 +96,68 @@ func NewWithConn(ctx context.Context, conn *pgx.Conn, cfg PostgresLeaderElection
 		intvl = leaderelection.DefaultRelinquishInterval
 	}
 
-	return &PostgresLeaderElection{
-		dbConn:          conn,
-		cfg:             cfg,
-		state:           leaderelection.Bootstrap,
-		relinquishIntvl: intvl,
-	}, nil
-}
-
-func (ple *PostgresLeaderElection) shouldRelinquish() bool {
-	if ple.state == leaderelection.Leader {
-		return time.Now().Sub(ple.leaderAt) >= ple.relinquishIntvl
+	pler := &PostgresLeaderElectionRuntime{
+		dbConn: conn,
+		cfg:    cfg,
 	}
 
-	return false
+	// Initialize LeaderElectionRuntime and return
+	pler.Init(cfg.LeaderElectionConfig)
+	return pler, nil
 }
 
-func (ple *PostgresLeaderElection) setState(state leaderelection.State) {
-	ple.state = state
-	ple.ts = time.Now()
-}
-
-func (ple *PostgresLeaderElection) acquireLeadership(ctx context.Context) error {
+func (pler *PostgresLeaderElectionRuntime) AcquireLeadership(ctx context.Context) (bool, error) {
 	// Postgres allows us to call try lock even if we already hold the lock.
 	// If we do, we must make as many unlock calls to relinquish the lock.
 	// We don't want to keep track of this. Return if we are already the leader.
-	if ple.state == leaderelection.Leader {
-		return nil
+	if pler.IsLeader() {
+		return true, nil
 	}
 
 	var isLeader bool
-	err := ple.dbConn.QueryRow(ctx, lelock, ple.cfg.LockId).Scan(&isLeader)
+	err := pler.dbConn.QueryRow(ctx, lelock, pler.cfg.LockId).Scan(&isLeader)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	if isLeader {
-		ple.leaderAt = time.Now()
-		ple.setState(leaderelection.Leader)
-		return ple.cfg.LeaderCallback(ctx)
-	}
-
-	ple.setState(leaderelection.Follower)
-	return ple.cfg.FollowerCallback(ctx)
+	return isLeader, nil
 }
 
-// Relinquish leadership. A follower calling this function will be returned an error.
-func (ple *PostgresLeaderElection) RelinquishLeadership(ctx context.Context) error {
-	if ple.state != leaderelection.Leader {
-		return leaderelection.ErrInvalidState
+func (pler *PostgresLeaderElectionRuntime) CheckLeadership(ctx context.Context) (bool, error) {
+	if !pler.IsLeader() {
+		return false, leaderelection.ErrInvalidState
+	}
+
+	var isLeader bool
+	err := pler.dbConn.QueryRow(ctx, lecheck, pler.cfg.LockId).Scan(&isLeader)
+	if err != nil {
+		return false, err
+	}
+
+	return isLeader, nil
+}
+
+// Relinquish leadership. An error will be returned if caller is not the leader.
+func (pler *PostgresLeaderElectionRuntime) RelinquishLeadership(ctx context.Context) (bool, error) {
+	if !pler.IsLeader() {
+		return false, leaderelection.ErrInvalidState
 	}
 
 	var status bool
-	err := ple.dbConn.QueryRow(ctx, leunlock, ple.cfg.LockId).Scan(&status)
+	err := pler.dbConn.QueryRow(ctx, leunlock, pler.cfg.LockId).Scan(&status)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// unlock query will return true or false in these cases
 	// Returns true: If this connection holds the lock and it was successfully released.
 	// Returns false: If this connection did not hold the lock.
 	// In the latter case, we thought we were the leader but we were not. TODO: Log an error.
-	// Set state to follower and issue callback.
-	ple.setState(leaderelection.Follower)
-	return ple.cfg.FollowerCallback(ctx)
+	return status, nil
 }
 
-func (ple *PostgresLeaderElection) checkLeadership(ctx context.Context) error {
-	if ple.state != leaderelection.Leader {
-		return leaderelection.ErrInvalidState
-	}
-
-	var isLeader bool
-	err := ple.dbConn.QueryRow(ctx, lecheck, ple.cfg.LockId).Scan(&isLeader)
-	if err != nil {
-		return err
-	}
-
-	if isLeader {
-		if ple.shouldRelinquish() {
-			return ple.RelinquishLeadership(ctx)
-		}
-
-		ple.setState(leaderelection.Leader)
-		return ple.cfg.LeaderCallback(ctx)
-	}
-
-	ple.setState(leaderelection.Follower)
-	return ple.cfg.FollowerCallback(ctx)
-}
-
-// Run the election. Will run until passed context is canceled or times out or deadline is exceeded.
-func (ple *PostgresLeaderElection) Run(ctx context.Context) error {
-	if ple.state != leaderelection.Bootstrap {
-		return leaderelection.ErrInvalidState
-	}
-
-	for {
-		ple.ts = time.Now()
-
-		switch ple.state {
-		case leaderelection.Bootstrap, leaderelection.Follower:
-			err := ple.acquireLeadership(ctx)
-			if err != nil {
-				return err
-			}
-
-		case leaderelection.Leader:
-			err := ple.checkLeadership(ctx)
-			if err != nil {
-				return err
-			}
-		}
-
-		intvl := ple.cfg.FollowerCheckInterval
-		if ple.state == leaderelection.Leader {
-			intvl = ple.cfg.LeaderCheckInterval
-		}
-
-		intvl -= time.Now().Sub(ple.ts)
-		if intvl < 0 {
-			intvl = 0
-		}
-
-		select {
-		case <-ctx.Done():
-			return context.Canceled
-
-		case <-time.After(intvl):
-		}
-	}
+// Run the election
+func (pler *PostgresLeaderElectionRuntime) Run(ctx context.Context) error {
+	pler.Elector = pler
+	return pler.LeaderElectionRuntime.Run(ctx)
 }
