@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 type State string
@@ -38,6 +40,9 @@ type LeaderElector interface {
 
 	// Run the election. Will run until passed context is canceled or times out or deadline exceeds
 	Run(context.Context) error
+
+	// Close the election
+	Close()
 }
 
 type Callback func(context.Context) error
@@ -49,7 +54,17 @@ type LeaderElectionConfig struct {
 	// Duration after which the leader will relinquish
 	RelinquishInterval time.Duration
 
+	// Relinquish as a cron spec. If spec is provided,
+	// RelinquishInterval will be ignored.
+	RelinquishIntervalSpec string
+
 	// How often will leader check to make sure they are still the leader
+	// It is important the LeaderCheckInterval is set to a value that is
+	// lesser than RelinquishInterval or what RelinquishIntervalSpec evaluates to.
+	// It is also important that LeaderCheckInterval is a factor of RelinquishInterval
+	// or what RelinquishIntervalSpec evaluates to.
+	// Failure to comply with above two points will result in delayed relinquish action
+	// by the leader.
 	LeaderCheckInterval time.Duration
 
 	// How often a follower will check to see if they can take over as a leader
@@ -63,10 +78,15 @@ type LeaderElectionConfig struct {
 }
 
 type LeaderElection struct {
-	state           State
+	state    State
+	leaderAt time.Time
+
 	relinquishIntvl time.Duration
-	leaderAt        time.Time
-	Elector         LeaderElector
+	cS              *cron.Cron
+	relinquishJobId cron.EntryID
+	csCh            chan bool
+
+	Elector LeaderElector
 
 	LeaderElectionConfig
 }

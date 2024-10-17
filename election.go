@@ -3,9 +3,11 @@ package leaderelection
 import (
 	"context"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
-// Initializes leader election runtime
+// Initializes leader election
 func (le *LeaderElection) Init(cfg LeaderElectionConfig) {
 	le.state = Bootstrap
 	le.LeaderElectionConfig = cfg
@@ -14,6 +16,13 @@ func (le *LeaderElection) Init(cfg LeaderElectionConfig) {
 	if le.relinquishIntvl == 0 {
 		le.relinquishIntvl = DefaultRelinquishInterval
 	}
+
+	le.initRelinquishJob()
+}
+
+// Stop leader election
+func (le *LeaderElection) Close() {
+	le.closeRelinquishJob()
 }
 
 // Returns true if current state is Bootstrap
@@ -43,9 +52,55 @@ func (le *LeaderElection) setState(state State) {
 	le.state = state
 }
 
+func (le *LeaderElection) initRelinquishJob() {
+	if len(le.RelinquishIntervalSpec) > 0 {
+		le.csCh = make(chan bool, 1)
+		le.cS = cron.New()
+		le.cS.Start()
+	}
+}
+
+func (le *LeaderElection) closeRelinquishJob() {
+	if len(le.RelinquishIntervalSpec) > 0 {
+		ctx := le.cS.Stop()
+		<-ctx.Done()
+	}
+}
+
+func (le *LeaderElection) startRelinquishJob() error {
+	if len(le.RelinquishIntervalSpec) > 0 {
+		id, err := le.cS.AddFunc(le.RelinquishIntervalSpec, func() { le.csCh <- true })
+		if err != nil {
+			return err
+		}
+		le.relinquishJobId = id
+	}
+
+	return nil
+}
+
+func (le *LeaderElection) stopRelinquishJob() error {
+	if len(le.RelinquishIntervalSpec) > 0 {
+		if le.relinquishJobId != 0 {
+			le.cS.Remove(le.relinquishJobId)
+			le.relinquishJobId = 0
+		}
+	}
+
+	return nil
+}
+
 func (le *LeaderElection) shouldRelinquish() bool {
 	if le.IsLeader() {
-		return time.Since(le.leaderAt) >= le.relinquishIntvl
+		if len(le.RelinquishIntervalSpec) > 0 {
+			select {
+			case relinquish := <-le.csCh:
+				return relinquish
+			default:
+			}
+		} else {
+			return time.Since(le.leaderAt) >= le.relinquishIntvl
+		}
 	}
 
 	return false
@@ -59,6 +114,11 @@ func (le *LeaderElection) acquireLeadershipWrapper(ctx context.Context) error {
 
 	if isLeader {
 		le.setState(Leader)
+		err := le.startRelinquishJob()
+		if err != nil {
+			return err
+		}
+
 		return le.LeaderCallback(ctx)
 	}
 
@@ -76,6 +136,11 @@ func (le *LeaderElection) checkLeadershipWrapper(ctx context.Context) error {
 		// We are a follower if status is true
 		if status {
 			le.setState(Follower)
+			err := le.stopRelinquishJob()
+			if err != nil {
+				return err
+			}
+
 			return le.FollowerCallback(ctx)
 		}
 
@@ -93,6 +158,10 @@ func (le *LeaderElection) checkLeadershipWrapper(ctx context.Context) error {
 	}
 
 	le.setState(Follower)
+	err = le.stopRelinquishJob()
+	if err != nil {
+		return err
+	}
 	return le.FollowerCallback(ctx)
 }
 

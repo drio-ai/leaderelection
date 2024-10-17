@@ -60,11 +60,20 @@ func New(ctx context.Context, cfg RedisLeaderElectionConfig) (leaderelection.Lea
 // Caller must have connected to redis and gives us a client to work with.
 // Redis parameters can be skipped in this case.
 // Please note, this Redis client will be dedicated for leader election only.
+// Redis implementation will ignore RelinquishIntervalSpec. Redis distributed locking
+// described here https://redis.io/docs/latest/develop/use/patterns/distributed-locks/,
+// relies on TTL of the SET value. This crucially covers for the case where the instance
+// holding the lock just vanishes. RelinquishIntervalSpec is used for cases where the user
+// wants leadership handoff every day for e.g. Setting TTL to a day will result in a very
+// long wait time before leadership handoff takes place in case where the leader vanishes.
 func NewWithConn(ctx context.Context, client *redis.Client, cfg RedisLeaderElectionConfig) (leaderelection.LeaderElector, error) {
 	intvl := cfg.RelinquishInterval
 	if intvl == 0 {
 		intvl = leaderelection.DefaultRelinquishInterval
 	}
+
+	// Empty out spec
+	cfg.RelinquishIntervalSpec = ""
 
 	rle := &RedisLeaderElection{
 		redisClient: client,
@@ -136,4 +145,9 @@ func (rle *RedisLeaderElection) RelinquishLeadership(ctx context.Context) (bool,
 func (rle *RedisLeaderElection) Run(ctx context.Context) error {
 	rle.Elector = rle
 	return rle.LeaderElection.Run(ctx)
+}
+
+// Close the election
+func (rle *RedisLeaderElection) Close() {
+	rle.LeaderElection.Close()
 }

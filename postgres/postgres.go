@@ -91,9 +91,8 @@ func NewWithConn(ctx context.Context, conn *pgx.Conn, cfg PostgresLeaderElection
 		return nil, err
 	}
 
-	intvl := cfg.RelinquishInterval
-	if intvl == 0 {
-		intvl = leaderelection.DefaultRelinquishInterval
+	if cfg.RelinquishInterval == 0 {
+		cfg.RelinquishInterval = leaderelection.DefaultRelinquishInterval
 	}
 
 	ple := &PostgresLeaderElection{
@@ -160,4 +159,9 @@ func (ple *PostgresLeaderElection) RelinquishLeadership(ctx context.Context) (bo
 func (ple *PostgresLeaderElection) Run(ctx context.Context) error {
 	ple.Elector = ple
 	return ple.LeaderElection.Run(ctx)
+}
+
+// Close the election
+func (ple *PostgresLeaderElection) Close() {
+	ple.LeaderElection.Close()
 }

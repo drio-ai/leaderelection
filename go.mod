@@ -8,6 +8,7 @@ require (
 	github.com/go-redsync/redsync/v4 v4.13.0
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/redis/go-redis/v9 v9.6.1
+	github.com/robfig/cron/v3 v3.0.1
 )
 
 require (
