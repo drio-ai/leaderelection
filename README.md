@@ -23,6 +23,10 @@ LeaderCheckInterval must be lesser than and be a factor of RelinquishInterval. C
 
 Redis distributed locks described at this link https://redis.io/docs/latest/develop/use/patterns/distributed-locks/ uses TTL in the SET values to handle among other things, a leader that has vanished. In such cases, the new leader will be elected once the TTL (RelinquishInterval) expires. Setting RelinquishInterval to a high value will delay the election of a new leader. It is recommended to set RelinquishInterval to a reasonable value depending on your environment.
 
+### RelinquishIntervalSpec
+
+Specification is implemented using this module https://pkg.go.dev/github.com/robfig/cron/v3. Please refer to the documentation for help with specification definition.
+
 ### Relationship between RelinquishInterval and RelinquishIntervalSpec
 
 If RelinquishIntervalSpec is configured, RelinquishInterval will be ignored. This is true except for the Redis implementation. It is expected that RelinquishIntervalSpec will be used in cases like e.g. leadership handoff is scheduled every day at midnight. This duration must also be set as the TTL in case of Redis to make sure leadership handoff does not happen before this schedule. This will not help in the case where the leader vanishes and as a result, Redis implementation will ignore RelinquishIntervalSpec and only work with RelinquishInterval.
