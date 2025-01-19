@@ -17,6 +17,11 @@ func (le *LeaderElection) Init(cfg LeaderElectionConfig) {
 		le.relinquishIntvl = DefaultRelinquishInterval
 	}
 
+	// If Fails is 0, set it to default
+	if le.Fails == 0 {
+		le.Fails = DefaultFailsCount
+	}
+
 	le.initRelinquishJob()
 }
 
@@ -171,19 +176,22 @@ func (le *LeaderElection) Run(ctx context.Context) error {
 		return ErrInvalidState
 	}
 
+	var err error
 	for {
 		loopTs := time.Now()
 
 		switch le.GetState() {
 		case Bootstrap, Follower:
-			err := le.acquireLeadershipWrapper(ctx)
-			if err != nil {
-				return err
-			}
+			err = le.acquireLeadershipWrapper(ctx)
 
 		case Leader:
-			err := le.checkLeadershipWrapper(ctx)
-			if err != nil {
+			err = le.checkLeadershipWrapper(ctx)
+		}
+
+		// Check to see if we are within the threshold in case of an error
+		if err != nil {
+			le.fails++
+			if le.fails >= le.Fails {
 				return err
 			}
 		}

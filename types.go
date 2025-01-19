@@ -18,7 +18,12 @@ const (
 )
 
 const (
+	// RelinquishInterval default if not set in config.
+	// This is irrespective of RelinquishIntervalSpec
 	DefaultRelinquishInterval time.Duration = 300 * time.Second
+
+	// Fails default if not set in config.
+	DefaultFailsCount int = 3
 )
 
 var (
@@ -70,6 +75,10 @@ type LeaderElectionConfig struct {
 	// How often a follower will check to see if they can take over as a leader
 	FollowerCheckInterval time.Duration
 
+	// After how many successive failures will the current election run give up.
+	// Defaults to 3
+	Fails int
+
 	// Callback once leadership has been acquired or staying on as a leader
 	LeaderCallback Callback
 
@@ -85,6 +94,8 @@ type LeaderElection struct {
 	cS              *cron.Cron
 	relinquishJobId cron.EntryID
 	csCh            chan bool
+
+	fails int
 
 	Elector LeaderElector
 
