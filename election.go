@@ -189,11 +189,18 @@ func (le *LeaderElection) Run(ctx context.Context) error {
 		}
 
 		// Check to see if we are within the threshold in case of an error
+		// We will wait for successive failures before giving up. This is
+		// susceptible to the case where there are repeated intermittent
+		// failures that causes some requests to pass and other fail.
+		// TODO: Check for failures within a time interval.
 		if err != nil {
 			le.fails++
 			if le.fails >= le.Fails {
 				return err
 			}
+		} else {
+			// Reset fails count
+			le.fails = 0
 		}
 
 		intvl := le.FollowerCheckInterval
